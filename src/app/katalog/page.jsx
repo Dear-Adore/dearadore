@@ -61,6 +61,9 @@ export default function KatalogPage() {
           tags: p.tags || []
         }));
         setDbProducts(mapped);
+      } else {
+        console.error("DB Error:", res.error);
+        alert("Gagal memuat database: " + res.error);
       }
       setIsLoading(false);
     }
