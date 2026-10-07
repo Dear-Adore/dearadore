@@ -16,8 +16,8 @@ const WhatsAppIcon = ({ size = 24, color = "currentColor" }) => (
 );
 
 const CreateButton = () => {
-  // Ganti dengan nomor WhatsApp yang valid (gunakan kode negara tanpa +, misal: 6281234567890)
-  const phoneNumber = "6281234567890";
+  // Ganti dengan nomor WhatsApp yang valid (gunakan kode negara tanpa +, misal: 628979118093)
+  const phoneNumber = "628979118093";
   const message = "Halo, saya ingin bertanya tentang Dear Adore.";
   const waLink = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
 
