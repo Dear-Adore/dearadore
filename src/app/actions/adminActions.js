@@ -16,7 +16,8 @@ export async function getProducts() {
     const data = await db.select().from(products).orderBy(desc(products.createdAt));
     return { success: true, data };
   } catch (error) {
-    return { success: false, error: error.message };
+    const hasDbUrl = !!process.env.DATABASE_URL;
+    return { success: false, error: error.message + " | Has DB URL: " + hasDbUrl + " | Code: " + String(error.code) };
   }
 }
 
