@@ -7,7 +7,8 @@ let _db = null;
 export const db = new Proxy({}, {
   get(target, prop) {
     if (!_db) {
-      const connectionString = process.env.DATABASE_URL;
+      // Use bracket notation to prevent Next.js from statically replacing this with undefined at build time
+      const connectionString = process.env['DATABASE_URL'];
       if (!connectionString) {
         throw new Error("DATABASE_URL is missing at runtime. Please set it in Cloudflare Secrets.");
       }
