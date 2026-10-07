@@ -2,13 +2,21 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
 
-const connectionString = process.env.DATABASE_URL;
+let _db = null;
 
-// Fix for "max clients reached" in Next.js development (hot-reload)
-const client = globalThis.postgresClient || postgres(connectionString, { prepare: false });
-
-if (process.env.NODE_ENV !== 'production') {
-  globalThis.postgresClient = client;
-}
-
-export const db = drizzle(client, { schema });
+export const db = new Proxy({}, {
+  get(target, prop) {
+    if (!_db) {
+      const connectionString = process.env.DATABASE_URL;
+      if (!connectionString) {
+        throw new Error("DATABASE_URL is missing at runtime. Please set it in Cloudflare Secrets.");
+      }
+      const client = globalThis.postgresClient || postgres(connectionString, { prepare: false });
+      if (process.env.NODE_ENV !== 'production') {
+        globalThis.postgresClient = client;
+      }
+      _db = drizzle(client, { schema });
+    }
+    return _db[prop];
+  }
+});
