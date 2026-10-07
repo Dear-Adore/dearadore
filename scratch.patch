@@ -1,0 +1,164 @@
+--- src/app/buat-undangan/page.jsx
++++ src/app/buat-undangan/page.jsx
+@@ -487,6 +487,159 @@
+ 
+   const totalPaymentAmount = (activePlan?.price || 0) + totalAdditionalCost;
+ 
++  const buildOrderPayload = (status) => {
++    const orderId = `ORD-DA-${Date.now().toString().slice(-6)}`;
++    return {
++      id: orderId,
++      createdAt: new Date().toISOString(),
++      themeId: selectedTheme.id,
++      themeTitle: selectedTheme.name || selectedTheme.title || 'Dear Adore Theme',
++      themeCategory: formData.eventType || selectedTheme.category || 'Invitation',
++
++      essentialFeatures: {
++        acara: {
++          active: true,
++          eventName: formData.eventName.trim() || 'Undangan Acara',
++          eventType: formData.eventType.trim() || 'Acara Spesial',
++          eventHosts: eventHosts.filter(Boolean),
++        },
++        pesanUndangan: {
++          active: true,
++          guestGreetingFormat: formData.guestGreetingFormat,
++          quotesMessage: formData.quotesMessage,
++        },
++        detailAcara: {
++          active: true,
++          eventDate: formData.eventDate,
++          eventTime: formData.eventTime,
++          eventVenue: formData.eventVenue,
++          eventAddress: formData.eventAddress,
++          eventMapsUrl: formData.eventMapsUrl,
++        },
++        rsvpUcapan: {
++          active: true,
++        },
++        musik: {
++          active: true,
++          mode: musicMode,
++          linkUrl: musicData.linkUrl,
++          title:
++            musicMode === 'manual'
++              ? musicData.manualTitle || 'Lagu Pilihan'
++              : musicData.linkUrl || 'Tautan Musik',
++          artist: musicMode === 'manual' ? musicData.manualArtist || 'Artis' : 'Spotify / YouTube',
++          startTime: Number(musicData.startTime) || 0,
++          endTime: Number(musicData.endTime) || 90,
++        },
++      },
++
++      additionalFeatures: {
++        countdownTimer: {
++          active: additionalFeatures.countdownTimer,
++          title: formData.countdownTitle,
++          targetDate: formData.countdownTargetDate || formData.eventDate,
++        },
++        gift: {
++          active: additionalFeatures.gift,
++          bankName: formData.bankName,
++          accountNumber: formData.accountNumber,
++          accountHolder: formData.accountHolder,
++          physicalAddress: formData.giftPhysicalAddress,
++          buttons: formData.additionalButtons.filter((b) => b.label.trim() !== ''),
++        },
++        dressCode: {
++          active: additionalFeatures.dressCode,
++          text: formData.dresscodeText,
++          colors: dresscodeColors,
++        },
++        gallery: {
++          active: additionalFeatures.gallery,
++          photosCount: uploadedPhotos.gallery.length,
++          videoTeaserUrl: formData.videoUrl || uploadedPhotos.videoTeaserUrl,
++        },
++        menuSelection: {
++          active: additionalFeatures.menuSelection,
++          makanan: {
++            enabled: formData.menuMakananEnabled,
++            options: formData.menuMakananOptions,
++          },
++          minuman: {
++            enabled: formData.menuMinumanEnabled,
++            options: formData.menuMinumanOptions,
++          },
++          beverage: {
++            enabled: formData.menuBeverageEnabled,
++            options: formData.menuBeverageOptions,
++          },
++          options:
++            [
++              formData.menuMakananEnabled && formData.menuMakananOptions ? `Makanan: ${formData.menuMakananOptions}` : '',
++              formData.menuMinumanEnabled && formData.menuMinumanOptions ? `Minuman: ${formData.menuMinumanOptions}` : '',
++              formData.menuBeverageEnabled && formData.menuBeverageOptions ? `Beverage: ${formData.menuBeverageOptions}` : '',
++            ]
++              .filter(Boolean)
++              .join(' | ') || formData.rsvpMenuOptions,
++          askDietary: formData.rsvpAskDietary,
++          askGuestCount: formData.rsvpAskGuestCount,
++        },
++        liveStreaming: {
++          active: additionalFeatures.liveStreaming,
++          platform: formData.liveStreamingPlatform,
++          url: formData.liveStreamingUrl,
++          time: formData.liveStreamingTime,
++        },
++        qrCheckin: {
++          active: additionalFeatures.qrCheckin,
++          enabled: additionalFeatures.qrCheckin,
++        },
++        enableVideo: !!(formData.videoUrl || uploadedPhotos.videoTeaserUrl),
++        videoUrl: formData.videoUrl || uploadedPhotos.videoTeaserUrl,
++      },
++
++      videoUrl: formData.videoUrl || uploadedPhotos.videoTeaserUrl,
++      essentialFeatures: cmsEssentialFeatures,
++      eventName: formData.eventName.trim() || 'Undangan Acara',
++      eventType: formData.eventType.trim() || 'Acara',
++      birthdayPersonName: eventHosts.filter(Boolean).join(' & ') || formData.eventName || 'Pemilik Acara',
++      quotesMessage: formData.quotesMessage,
++      eventDate: formData.eventDate,
++      eventTime: formData.eventTime,
++      eventVenue: formData.eventVenue,
++      eventAddress: formData.eventAddress,
++      eventMapsUrl: formData.eventMapsUrl,
++      whatsapp: '',
++      dresscodeText: formData.dresscodeText,
++      dresscodeColors: dresscodeColors,
++      musicTitle:
++        musicMode === 'manual'
++          ? musicData.manualTitle || 'Lagu Pilihan'
++          : musicData.linkUrl || 'Tautan Musik',
++      musicArtist: musicMode === 'manual' ? musicData.manualArtist || 'Artis' : 'Spotify / YouTube',
++      musicType: musicMode,
++      package: {
++        ...activePlan,
++        basePrice: activePlan.price,
++        additionalFeaturesPrice: totalAdditionalCost,
++        totalPrice: totalPaymentAmount,
++        price: totalPaymentAmount,
++      },
++      totalPrice: totalPaymentAmount,
++      packagePrice: activePlan.price,
++      additionalFeaturesPrice: totalAdditionalCost,
++      additionalCostDetails: additionalCostDetails,
++      paymentMethod: {
++        id: paymentMethod,
++        name:
++          paymentMethod === 'qris'
++            ? 'QRIS'
++            : paymentMethod === 'bca_va'
++            ? 'BCA Virtual Account'
++            : paymentMethod === 'mandiri_va'
++            ? 'Mandiri Virtual Account'
++            : 'E-Wallet',
++      },
++      status: status,
++    };
++  };
++
+   const handleExecutePayment = () => {
+     setIsProcessingPayment(true);
+ 
