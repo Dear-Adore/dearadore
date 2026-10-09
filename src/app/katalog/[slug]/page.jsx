@@ -242,7 +242,7 @@ export default function ProductDetail({ params }) {
                   muted
                   playsInline
                   onError={() => setVideoError(true)}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scale(1)' }}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'bottom', transform: 'scale(1)' }}
                 />
               ) : (
                 <Image
@@ -250,7 +250,7 @@ export default function ProductDetail({ params }) {
                   alt={product.title}
                   fill
                   sizes="(max-width: 768px) 100vw, 400px"
-                  style={{ objectFit: 'cover', transform: 'scale(1)' }}
+                  style={{ objectFit: 'cover', objectPosition: 'bottom', transform: 'scale(1)' }}
                   priority
                 />
               )}
