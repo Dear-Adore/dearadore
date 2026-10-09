@@ -104,9 +104,12 @@ export async function getUserOrders() {
   try {
     const user = await getSessionUser();
     if (!user) return { success: false, data: [] };
-    const q = query(collection(db, 'orders'), where('userId', '==', user.id), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'orders'), where('userId', '==', user.id));
     const snap = await getDocs(q);
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() }))))));
+    let data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Sort descending by createdAt in memory to avoid Firestore index requirement
+    data.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(data))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };

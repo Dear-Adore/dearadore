@@ -103,24 +103,14 @@ export default async function Home() {
           <div className="home-hero-phone">
             <div className="phone-png-frame-container">
               <div className="phone-screen-scroll">
-                {heroProduct ? (
-                  <Image
-                    src={heroProduct.previewImage}
-                    alt={`Preview tema ${heroProduct.name}`}
-                    fill
-                    sizes="300px"
-                    style={{ objectFit: 'cover' }}
-                    priority
-                  />
-                ) : (
-                  <div className="home-phone-fallback">
-                    <Clover size={36} color="var(--color-primary)" />
-                    <small>Undangan Digital</small>
-                    <strong>
-                      Dear <span>Adore</span>
-                    </strong>
-                  </div>
-                )}
+                <video
+                  src="https://res.cloudinary.com/eg03frb2/video/upload/v1791287079/coquette_pastel.mov"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
               </div>
 
               <div className="phone-png-overlay">

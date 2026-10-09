@@ -122,26 +122,37 @@ export default function AkunPage() {
         if (ordersRes.success && Array.isArray(ordersRes.data)) {
           ordersRes.data.forEach((o) => {
             const dateStr = o.createdAt ? new Date(o.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Hari ini';
-            const personName = o.birthdayPersonName || (o.groomName ? `${o.groomName} & ${o.brideName}` : 'Nama Pemesan');
-            const ageInfo = o.birthdayAge ? ` (${o.birthdayAge})` : '';
+            const pkg = o.packageData || {};
+            const personName = pkg.eventName || pkg.birthdayPersonName || (pkg.groomName ? `${pkg.groomName} & ${pkg.brideName}` : o.clientName || 'Nama Pemesan');
+            const ageInfo = pkg.birthdayAge ? ` (${pkg.birthdayAge})` : '';
             const slug = personName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
 
-            const eventType = o.eventType || 'Acara';
+            const eventType = o.eventType || pkg.eventType || 'Acara';
+            
+            let evDateStr = 'Belum diatur';
+            const rawDate = pkg.eventDate || o.eventDate;
+            if (rawDate) {
+              const d = new Date(rawDate);
+              if (!isNaN(d.getTime())) {
+                evDateStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+              }
+            }
+
             const projectObj = {
               id: o.id,
-              title: `${eventType} ${personName}${ageInfo}`,
+              title: `${eventType} ${personName}${ageInfo}`.trim(),
               theme: o.themeTitle || 'Tema Pilihan',
               themeCategory: o.themeCategory || 'Collection',
               createdAt: dateStr,
-              eventDate: o.eventDate ? (o.eventDate instanceof Date ? o.eventDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) : String(o.eventDate)) : 'Belum diatur',
-              eventTime: o.eventTime || '18:30 WIB',
-              eventVenue: o.eventVenue || 'Venue Cafe',
-              previewUrl: o.packageData?.previewUrl || `https://${slug}.dearadore.site`,
-              rsvpUrl: o.packageData?.rsvpUrl || '#',
-              deadlineDays: o.packageData?.deadlineDays || 3,
-              packageName: o.package?.name || 'Paket Utama',
-              price: Number(o.package?.price || o.totalPrice || 0),
-              statusNote: `Paket ${o.package?.name || 'Utama'} • Rp ${Number(o.totalPrice || 0).toLocaleString('id-ID')}`,
+              eventDate: evDateStr,
+              eventTime: pkg.eventTime || o.eventTime || '18:30 WIB',
+              eventVenue: pkg.eventVenue || o.eventVenue || 'Tempat / Venue',
+              previewUrl: pkg.previewUrl || `https://${slug}.dearadore.site`,
+              rsvpUrl: pkg.rsvpUrl || '#',
+              deadlineDays: pkg.deadlineDays || 3,
+              packageName: o.package?.name || pkg.package?.name || 'Paket Utama',
+              price: Number(o.package?.price || pkg.package?.price || o.totalPrice || 0),
+              statusNote: `Paket ${o.package?.name || pkg.package?.name || 'Utama'} • Rp ${Number(o.totalPrice || 0).toLocaleString('id-ID')}`,
               orderStatus: (o.status || 'proses').toLowerCase(),
               rawOrder: o,
             };
@@ -171,14 +182,25 @@ export default function AkunPage() {
             const actualFormData = draftPayload.formData || {};
             const dateStr = d.updatedAt ? new Date(d.updatedAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Hari ini';
             
+            const draftPersonName = actualFormData.eventName || actualFormData.birthdayPersonName || (actualFormData.groomName ? `${actualFormData.groomName} & ${actualFormData.brideName}` : draftPayload.clientName || 'Undangan Baru');
+            
+            let draftDateStr = 'Belum diatur';
+            const rawDraftDate = actualFormData.eventDate || draftPayload.eventDate;
+            if (rawDraftDate) {
+              const dDate = new Date(rawDraftDate);
+              if (!isNaN(dDate.getTime())) {
+                draftDateStr = dDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+              }
+            }
+
             dynamicDitunda.push({
               id: d.id,
               themeId: d.themeId,
-              title: `Draft: ${actualFormData.eventName || 'Undangan Baru'}`,
+              title: `Draft: ${draftPersonName}`.trim(),
               theme: d.themeName,
               createdAt: dateStr,
-              eventDate: actualFormData.eventDate || 'Belum diatur',
-              eventVenue: actualFormData.eventVenue || 'Belum diatur',
+              eventDate: draftDateStr,
+              eventVenue: actualFormData.eventVenue || draftPayload.eventVenue || 'Tempat / Venue',
               rawOrder: { ...draftPayload, themeId: d.themeId }
             });
           });
