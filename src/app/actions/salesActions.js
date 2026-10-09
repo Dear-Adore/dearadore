@@ -1,8 +1,7 @@
 'use server';
 
-import { db } from '../../db';
-import { orders, promocodes, products } from '../../db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { db } from '../../lib/firebase';
+import { collection, doc, getDocs, getDoc, setDoc, updateDoc, query, orderBy, where } from 'firebase/firestore';
 import { requireRole } from '../../lib/auth';
 import {
   SALES_PACKAGES,
@@ -13,27 +12,37 @@ import {
 
 const SALES_ROLES = ['sales', 'admin'];
 
-// Satu kode promo per sales, deterministik dari user id (tanpa perubahan skema).
 const codeFor = (userId) => `HERO-${userId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase()}`;
 
 async function ensurePromo(user) {
   const code = codeFor(user.id);
-  await db.insert(promocodes).values({
-    id: crypto.randomUUID(),
+  const q = query(collection(db, 'promocodes'), where('code', '==', code));
+  const snap = await getDocs(q);
+  if (!snap.empty) {
+    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+  }
+  
+  const id = crypto.randomUUID();
+  const newPromo = {
+    id,
     code,
     discountPercent: SALES_DISCOUNT_PERCENT,
     quota: 999999,
     used: 0,
-  }).onConflictDoNothing({ target: promocodes.code });
-  const [promo] = await db.select().from(promocodes).where(eq(promocodes.code, code));
-  return promo;
+    agentId: user.id,
+    createdAt: new Date().toISOString()
+  };
+  await setDoc(doc(db, 'promocodes', id), newPromo);
+  return newPromo;
 }
 
-// Pesanan yang memakai kode promo sales (baik dibuat sales maupun checkout klien).
-const ordersByCode = (code) =>
-  db.select().from(orders)
-    .where(sql`${orders.packageData}->'promoApplied'->>'code' = ${code}`)
-    .orderBy(desc(orders.createdAt));
+const ordersByCode = async (code) => {
+  const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+  const snap = await getDocs(q);
+  // Manual filter because Firestore json subfield queries are limited
+  return JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() }))))))
+    .filter(o => o.packageData?.promoApplied?.code === code);
+};
 
 const commissionOf = (o) => o.commissionAmount > 0 ? o.commissionAmount : (o.packageData?.salesCommission ?? FALLBACK_COMMISSION);
 
@@ -55,7 +64,7 @@ export async function getSalesDashboard() {
         promo: { code: promo.code, discountPercent: promo.discountPercent, used: promo.used },
         stats: {
           totalOrders: list.length,
-          monthOrders: list.filter(o => new Date(o.createdAt) >= monthStart).length,
+          monthOrders: list.filter(o => new Date(o.createdAt || 0) >= monthStart).length,
           paidOrders: paid.length,
           unpaidOrders: list.length - paid.length,
           totalCommission: list.reduce((s, o) => s + commissionOf(o), 0),
@@ -82,8 +91,10 @@ export async function getSalesDashboard() {
 export async function getSalesThemes() {
   try {
     await requireRole(SALES_ROLES);
-    const data = await db.select({ id: products.id, name: products.name, category: products.category })
-      .from(products).where(eq(products.status, 'Aktif')).orderBy(products.name);
+    const q = query(collection(db, 'products'), where('status', '==', 'Aktif'));
+    const snap = await getDocs(q);
+    let data = snap.docs.map(d => ({ id: d.id, name: d.data().name, category: d.data().category }));
+    data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -99,21 +110,22 @@ export async function createSalesOrder(input) {
     const eventDate = new Date(input.eventDate);
     if (isNaN(eventDate.getTime())) throw new Error('Tanggal acara tidak valid');
 
-    const [theme] = await db.select().from(products).where(eq(products.id, input.themeId));
-    if (!theme) throw new Error('Tema tidak ditemukan');
+    const themeSnap = await getDoc(doc(db, 'products', input.themeId));
+    if (!themeSnap.exists()) throw new Error('Tema tidak ditemukan');
+    const theme = themeSnap.data();
 
     const promo = await ensurePromo(user);
     const { discount, total } = calcSalesPrice(pkg.price);
     const orderId = `ORD-DA-${Date.now().toString().slice(-6)}`;
 
-    await db.insert(orders).values({
+    const orderData = {
       id: orderId,
       userId: user.id,
-      themeId: theme.id,
+      themeId: input.themeId,
       themeName: theme.name,
       clientName: input.clientName.trim(),
       eventType: input.eventType?.trim() || theme.category || 'Lainnya',
-      eventDate,
+      eventDate: eventDate.toISOString(),
       paymentMethod: 'qris',
       paymentStatus: 'paid',
       status: 'proses',
@@ -123,7 +135,7 @@ export async function createSalesOrder(input) {
         id: orderId,
         source: 'sales',
         salesId: user.id,
-        themeId: theme.id,
+        themeId: input.themeId,
         themeTitle: theme.name,
         clientName: input.clientName.trim(),
         clientPhone: input.clientPhone?.trim() || null,
@@ -132,9 +144,15 @@ export async function createSalesOrder(input) {
         promoApplied: { code: promo.code, discountPercent: promo.discountPercent },
         totalPrice: total,
       },
-    });
+      createdAt: new Date().toISOString()
+    };
+    await setDoc(doc(db, 'orders', orderId), orderData);
 
-    await db.update(promocodes).set({ used: sql`used + 1` }).where(eq(promocodes.code, promo.code));
+    const pQuery = query(collection(db, 'promocodes'), where('code', '==', promo.code));
+    const pSnap = await getDocs(pQuery);
+    if (!pSnap.empty) {
+      await updateDoc(pSnap.docs[0].ref, { used: (pSnap.docs[0].data().used || 0) + 1 });
+    }
 
     return {
       success: true,

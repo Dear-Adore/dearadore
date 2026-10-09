@@ -1,31 +1,27 @@
 'use server';
-import { expenses } from '../../db/schema';
+
+import { db } from '../../lib/firebase';
+import { collection, doc, getDocs, getDoc, setDoc, updateDoc, query, orderBy, where } from 'firebase/firestore';
+import { requireRole, ensureUserRow, getSessionUser } from '../../lib/auth';
 import { getSalesDashboard } from './salesActions';
 
 
-import { db } from '../../db';
-import { withdrawals, users } from '../../db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
-import { requireRole, ensureUserRow } from '../../lib/auth';
-import { createClient } from '../../lib/supabase/server';
-import crypto from 'crypto';
-
 export async function requestWithdrawal(amount, paymentMethod, accountNumber) {
   try {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Unauthorized');
     
     if (amount < 25000) throw new Error('Minimal penarikan adalah Rp 25.000');
     if (!paymentMethod || !accountNumber) throw new Error('Metode pembayaran dan nomor rekening wajib diisi.');
 
-    // Pastikan user adalah agent/sales
-    const me = await db.select().from(users).where(eq(users.id, user.id));
-    if (!me.length || !['agent', 'sales'].includes(me[0].role)) {
+    const userSnap = await getDoc(doc(db, 'users', user.id));
+    if (!userSnap.exists()) throw new Error('User not found');
+    const role = userSnap.data().role;
+    
+    if (!['agent', 'sales'].includes(role)) {
       throw new Error('Hanya agent/sales yang bisa melakukan penarikan.');
     }
 
-    // --- PONYTAIL FIX: Validasi batas maksimal penarikan (Saldo Tersedia) ---
     const statsRes = await getMyStats();
     if (!statsRes.success || !statsRes.data) {
       throw new Error('Gagal mengambil data saldo agen.');
@@ -35,16 +31,17 @@ export async function requestWithdrawal(amount, paymentMethod, accountNumber) {
       throw new Error(`Saldo tidak mencukupi. Maksimal penarikan: Rp ${availableBalance.toLocaleString('id-ID')}`);
     }
 
-    const withdrawId = `wd_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`;
+    const withdrawId = `wd_${Date.now()}_${Math.floor(Math.random() * 65536).toString(16).padStart(4, '0')}`;
     
-    await db.insert(withdrawals).values({
+    await setDoc(doc(db, 'withdrawals', withdrawId), {
       id: withdrawId,
       agentId: user.id,
       amount,
       adminFee: 2500,
       paymentMethod,
       accountNumber,
-      status: 'pending'
+      status: 'pending',
+      createdAt: new Date().toISOString()
     });
 
     return { success: true, withdrawId };
@@ -56,42 +53,37 @@ export async function requestWithdrawal(amount, paymentMethod, accountNumber) {
 
 export async function getWithdrawals(agentId = null) {
   try {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Unauthorized');
     
-    const me = await db.select().from(users).where(eq(users.id, user.id));
-    const role = me[0]?.role || 'user';
+    const userSnap = await getDoc(doc(db, 'users', user.id));
+    const role = userSnap.exists() ? userSnap.data().role : 'user';
 
-    let query = db.select({
-      id: withdrawals.id,
-      agentId: withdrawals.agentId,
-      agentName: users.name,
-      amount: withdrawals.amount,
-      adminFee: withdrawals.adminFee,
-      paymentMethod: withdrawals.paymentMethod,
-      accountNumber: withdrawals.accountNumber,
-      status: withdrawals.status,
-      proofUrl: withdrawals.proofUrl,
-      createdAt: withdrawals.createdAt,
-      completedAt: withdrawals.completedAt
-    })
-    .from(withdrawals)
-    .leftJoin(users, eq(withdrawals.agentId, users.id))
-    .orderBy(desc(withdrawals.createdAt));
-
-    // Jika dipanggil oleh agen sendiri, filter berdasarkan ID agen.
-    // Jika dipanggil oleh admin/finance, bisa lihat semua (kecuali agentId di-pass untuk filter)
+    let q;
     if (role === 'agent' || role === 'sales') {
-      query.where(eq(withdrawals.agentId, user.id));
-    } else if (['admin', 'finance'].includes(role) && agentId) {
-      query.where(eq(withdrawals.agentId, agentId));
-    } else if (!['admin', 'finance'].includes(role)) {
+      q = query(collection(db, 'withdrawals'), where('agentId', '==', user.id), orderBy('createdAt', 'desc'));
+    } else if (['admin', 'finance'].includes(role)) {
+      if (agentId) {
+        q = query(collection(db, 'withdrawals'), where('agentId', '==', agentId), orderBy('createdAt', 'desc'));
+      } else {
+        q = query(collection(db, 'withdrawals'), orderBy('createdAt', 'desc'));
+      }
+    } else {
       throw new Error('Unauthorized');
     }
 
-    const data = await query;
-    return { success: true, data };
+    const snap = await getDocs(q);
+    const data = [];
+    for (const d of snap.docs) {
+      const wd = { id: d.id, ...d.data() };
+      const agentSnap = await getDoc(doc(db, 'users', wd.agentId));
+      if (agentSnap.exists()) {
+        wd.agentName = agentSnap.data().name;
+      }
+      data.push(wd);
+    }
+    
+    return { success: true, data: JSON.parse(JSON.stringify(data)) };
   } catch (error) {
     console.error('Error fetching withdrawals:', error);
     return { success: false, error: error.message };
@@ -102,25 +94,23 @@ export async function approveWithdrawal(withdrawId, proofUrl) {
   try {
     await requireRole(['admin', 'finance']);
     
-    await db.update(withdrawals)
-      .set({ 
-        status: 'completed', 
-        proofUrl,
-        completedAt: new Date()
-      })
-      .where(eq(withdrawals.id, withdrawId));
+    const wRef = doc(db, 'withdrawals', withdrawId);
+    await updateDoc(wRef, { 
+      status: 'completed', 
+      proofUrl,
+      completedAt: new Date().toISOString()
+    });
       
-    // (Opsional) Di sini bisa insert ke tabel expenses agar masuk ke data finance
-
-    const wdInfo = await db.select().from(withdrawals).where(eq(withdrawals.id, withdrawId));
-    
-    if (wdInfo.length > 0) {
-      await db.insert(expenses).values({
-        id: `exp_${Date.now()}`,
+    const wSnap = await getDoc(wRef);
+    if (wSnap.exists()) {
+      const expId = `exp_${Date.now()}`;
+      await setDoc(doc(db, 'expenses', expId), {
+        id: expId,
         title: `Pencairan Komisi Agen`,
-        amount: wdInfo[0].amount,
+        amount: wSnap.data().amount,
         category: 'Marketing / Komisi',
-        status: 'Lunas'
+        status: 'Lunas',
+        createdAt: new Date().toISOString()
       });
     }
 
@@ -133,15 +123,13 @@ export async function approveWithdrawal(withdrawId, proofUrl) {
 
 export async function getMyStats() {
   try {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Unauthorized');
 
-    const me = await db.select().from(users).where(eq(users.id, user.id));
-    if (!me.length || !['agent', 'sales'].includes(me[0].role)) {
-      return { success: true, data: null }; // not an agent
+    const userSnap = await getDoc(doc(db, 'users', user.id));
+    if (!userSnap.exists() || !['agent', 'sales'].includes(userSnap.data().role)) {
+      return { success: true, data: null };
     }
-
 
     const dashboard = await getSalesDashboard();
     
@@ -152,14 +140,16 @@ export async function getMyStats() {
     const { stats } = dashboard.data;
     const totalCommission = stats.paidCommission;
 
-    const agentWithdrawals = await db.select().from(withdrawals).where(eq(withdrawals.agentId, user.id));
-    const withdrawn = agentWithdrawals.reduce((sum, w) => sum + w.amount, 0);
+    const wQuery = query(collection(db, 'withdrawals'), where('agentId', '==', user.id));
+    const wSnap = await getDocs(wQuery);
+    
+    const withdrawn = wSnap.docs.reduce((sum, d) => sum + (d.data().amount || 0), 0);
     const available = totalCommission - withdrawn;
 
     return {
       success: true,
       data: {
-        tier: 'Bronze', // Tiers can be added back if needed later
+        tier: 'Bronze',
         sales: stats.totalOrders,
         lunas: stats.paidOrders,
         commission: totalCommission,

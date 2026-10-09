@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Ticket, PlusCircle, LogOut, ShieldCheck, Wallet } from 'lucide-react';
-import { createClient } from '../lib/supabase/client';
+import { auth } from '../lib/firebase';
+import { signOut } from 'firebase/auth';
 
 const NAV = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/sales' },
@@ -18,7 +19,8 @@ export default function SalesSidebar({ user }) {
   const displayName = user?.dbName || user?.email?.split('@')[0] || 'Sales';
 
   const handleLogout = async () => {
-    await createClient().auth.signOut();
+    await signOut(auth);
+    document.cookie = 'firebase_uid=; path=/; max-age=0';
     router.push('/akun');
     router.refresh();
   };

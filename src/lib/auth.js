@@ -1,49 +1,59 @@
 import 'server-only';
-import { db } from '../db';
-import { users } from '../db/schema';
-import { eq } from 'drizzle-orm';
-import { createClient } from './supabase/server';
+import { db } from './firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { cookies } from 'next/headers';
 
-// User yang sedang login (dari cookie session Supabase), atau null.
+// User yang sedang login
 export async function getSessionUser() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  return user ?? null;
+  const cookieStore = cookies();
+  const uid = cookieStore.get('firebase_uid')?.value;
+  if (!uid) return null;
+  return { id: uid };
 }
 
-// Pastikan baris public.users ada (fallback jika trigger DB belum jalan).
+// Pastikan baris users ada (fallback).
 export async function ensureUserRow(authUser) {
-  await db.insert(users).values({
-    id: authUser.id,
-    name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || authUser.email.split('@')[0],
-    email: authUser.email,
-    role: 'user',
-  }).onConflictDoNothing({ target: users.id });
+  const userRef = doc(db, 'users', authUser.id);
+  const userSnap = await getDoc(userRef);
+  if (!userSnap.exists()) {
+    await setDoc(userRef, {
+      id: authUser.id,
+      name: authUser.name || 'User',
+      email: authUser.email || '',
+      role: 'user',
+      createdAt: new Date().toISOString()
+    });
+  }
 }
 
 export async function requireRole(roles = ['admin']) {
   const authUser = await getSessionUser();
   if (!authUser) throw new Error('Unauthorized');
-  let [row] = await db.select({ role: users.role, name: users.name }).from(users).where(eq(users.id, authUser.id));
-  if (!row) {
-    await ensureUserRow(authUser);
-    [row] = await db.select({ role: users.role, name: users.name }).from(users).where(eq(users.id, authUser.id));
-  }
-  if (!row || !roles.includes(row.role)) throw new Error('Forbidden');
   
-  authUser.dbRole = row.role;
-  authUser.dbName = row.name;
+  let userRef = doc(db, 'users', authUser.id);
+  let userSnap = await getDoc(userRef);
+  
+  if (!userSnap.exists()) {
+    await ensureUserRow(authUser);
+    userSnap = await getDoc(userRef);
+  }
+  
+  const userData = userSnap.data();
+  if (!userData || !roles.includes(userData.role)) throw new Error('Forbidden');
+  
+  authUser.dbRole = userData.role;
+  authUser.dbName = userData.name;
   return authUser;
 }
 
-// Untuk mengambil user beserta role-nya tanpa throw error (cocok untuk Layout/Page)
 export async function getUserWithRole() {
   const authUser = await getSessionUser();
   if (!authUser) return null;
-  const [row] = await db.select({ role: users.role, name: users.name }).from(users).where(eq(users.id, authUser.id));
-  if (row) {
-    authUser.dbRole = row.role;
-    authUser.dbName = row.name;
+  const userSnap = await getDoc(doc(db, 'users', authUser.id));
+  if (userSnap.exists()) {
+    const userData = userSnap.data();
+    authUser.dbRole = userData.role;
+    authUser.dbName = userData.name;
   }
   return authUser;
 }

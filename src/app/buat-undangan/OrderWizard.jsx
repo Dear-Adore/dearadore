@@ -25,7 +25,8 @@ import {
 } from 'lucide-react';
 import { saveDraft, deleteDraft } from '../actions/projectActions';
 import { calculateOrderPricing } from '../../lib/pricingEngine';
-import { createClient } from '../../lib/supabase/client';
+import { auth } from '../../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 import { DEFAULT_ESSENTIAL_FEATURES } from '../../data/katalogData';
 
@@ -234,18 +235,16 @@ function OrderWizardContent({ salesMode = false }) {
 
   // Muat info user
   useEffect(() => {
-    const fetchUser = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setFormData(prev => ({
           ...prev,
-          contactName: prev.contactName || user.user_metadata?.full_name || user.email.split('@')[0] || '',
-          contactPhone: prev.contactPhone || user.user_metadata?.phone || '',
+          contactName: prev.contactName || user.displayName || user.email.split('@')[0] || '',
+          contactPhone: prev.contactPhone || '',
         }));
       }
-    };
-    fetchUser();
+    });
+    return () => unsubscribe();
   }, []);
 
   // Handlers untuk Pemilik Acara dinamis

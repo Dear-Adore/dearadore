@@ -4,9 +4,16 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Mail, Lock, User, EyeOff, Eye, Check } from 'lucide-react';
-import { createClient } from '../lib/supabase/client';
+import { auth } from '../lib/firebase';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  sendPasswordResetEmail,
+  updateProfile
+} from 'firebase/auth';
 import { syncUserToDatabase } from '../app/actions/userActions';
-
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,7 +36,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
-  const supabase = createClient();
 
   // Halaman tujuan setelah login (hanya path internal)
   const getNext = () => {
@@ -64,77 +70,66 @@ export default function LoginPage() {
         if (formData.password.length < 6) {
           throw new Error('Password minimal 6 karakter');
         }
-        const { data, error } = await supabase.auth.signUp({
-          email: formData.email,
-          password: formData.password,
-          options: {
-            data: { full_name: formData.name },
-            emailRedirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(getNext())}`,
-          }
-        });
-        if (error) throw error;
-        // Baris public.users dibuat otomatis oleh trigger DB (on_auth_user_created)
-
-        if (data?.session) {
-          await syncUserToDatabase({
-            id: data.user.id,
-            email: formData.email,
-            name: formData.name,
-            password: formData.password
-          });
-          // Konfirmasi email nonaktif: langsung masuk
-          window.location.href = getNext();
-          router.refresh();
-        } else if (data?.user) {
-          await syncUserToDatabase({
-            id: data.user.id,
-            email: formData.email,
-            name: formData.name,
-            password: formData.password
-          });
-          setInfoMsg('Akun dibuat! Cek email Anda untuk verifikasi, lalu login.');
-          setView('login');
-        }
-      } else if (view === 'login') {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: formData.email,
-          password: formData.password,
-        });
-        if (error) throw error;
         
-        if (data?.user) {
-          await syncUserToDatabase({
-            id: data.user.id,
-            email: formData.email,
-            password: formData.password
-          });
-        }
-        window.location.href = getNext();
-        router.refresh();
-      } else if (view === 'forgot') {
-        const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
-          redirectTo: `${location.origin}/auth/update-password`,
+        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+        await updateProfile(userCredential.user, { displayName: formData.name });
+        
+        // Simpan UID ke cookie agar terbaca di Server Actions
+        document.cookie = `firebase_uid=${userCredential.user.uid}; path=/; max-age=86400`;
+        
+        await syncUserToDatabase({
+          id: userCredential.user.uid,
+          email: formData.email,
+          name: formData.name,
         });
-        if (error) throw error;
+
+        window.location.href = getNext();
+        
+      } else if (view === 'login') {
+        const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
+        
+        // Simpan UID ke cookie agar terbaca di Server Actions
+        document.cookie = `firebase_uid=${userCredential.user.uid}; path=/; max-age=86400`;
+        
+        await syncUserToDatabase({
+          id: userCredential.user.uid,
+          email: formData.email,
+        });
+        
+        window.location.href = getNext();
+        
+      } else if (view === 'forgot') {
+        await sendPasswordResetEmail(auth, formData.email);
         alert('Instruksi reset password telah dikirim ke email Anda.');
       }
     } catch (err) {
-      setErrorMsg(err.message);
+      if (err.code === 'auth/invalid-credential') {
+        setErrorMsg('Email atau password salah');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setErrorMsg('Email sudah terdaftar');
+      } else {
+        setErrorMsg(err.message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleOAuth = async (provider) => {
+  const handleOAuth = async () => {
     setErrorMsg('');
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(getNext())}`,
-        }
+      const provider = new GoogleAuthProvider();
+      const userCredential = await signInWithPopup(auth, provider);
+      
+      document.cookie = `firebase_uid=${userCredential.user.uid}; path=/; max-age=86400`;
+      
+      await syncUserToDatabase({
+        id: userCredential.user.uid,
+        email: userCredential.user.email,
+        name: userCredential.user.displayName,
       });
-      if (error) throw error;
+
+      window.location.href = getNext();
     } catch (err) {
       setErrorMsg(err.message);
     }
@@ -175,7 +170,7 @@ export default function LoginPage() {
       <button
         type="button"
         id="google-auth-btn"
-        onClick={() => handleOAuth('google')}
+        onClick={handleOAuth}
         style={{
           width: '100%',
           padding: '0.9rem',

@@ -12,13 +12,11 @@
     "preview": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && opennextjs-cloudflare preview"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.7",
-    "@supabase/supabase-js": "^2.117.2",
-    "drizzle-orm": "^0.45.3",
+    "firebase": "^13.0.0",
+    "firebase-admin": "^14.5.0",
     "framer-motion": "^11.18.2",
     "lucide-react": "^0.475.0",
     "next": "^14.2.24",
-    "postgres": "^3.4.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-is": "^18.3.1",
@@ -26,11 +24,11 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@cloudflare/next-on-pages": "^1.13.16",
     "@opennextjs/cloudflare": "^1.20.9",
     "@oxlint/plugins": "^1.87.0",
     "autoprefixer": "^10.6.1",
     "dotenv": "^18.0.5",
-    "drizzle-kit": "^0.31.11",
     "oxlint": "^1.87.0",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",

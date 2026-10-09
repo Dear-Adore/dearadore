@@ -18,7 +18,8 @@ import {
   LogOut,
   CreditCard
 } from 'lucide-react';
-import { createClient } from '../lib/supabase/client';
+import { auth } from '../lib/firebase';
+import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 
 export default function AdminSidebar({ user }) {
@@ -75,8 +76,8 @@ export default function AdminSidebar({ user }) {
   }).filter(group => group.items.length > 0);
 
   const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
+    await signOut(auth);
+    document.cookie = 'firebase_uid=; path=/; max-age=0';
     router.push('/akun');
     router.refresh();
   };

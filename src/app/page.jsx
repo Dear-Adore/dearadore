@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { desc, eq } from 'drizzle-orm';
+import { collection, query, where, orderBy, getDocs, limit } from 'firebase/firestore';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -14,8 +14,7 @@ import {
   Star,
   Timer,
 } from 'lucide-react';
-import { db } from '../db';
-import { products, reviews } from '../db/schema';
+import { db } from '../lib/firebase';
 import { DEFAULT_ADDITIONAL_FEATURES, DEFAULT_ESSENTIAL_FEATURES } from '../data/katalogData';
 
 export const metadata = {
@@ -51,13 +50,19 @@ const toSlug = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replac
 
 async function loadHomeData() {
   try {
-    const [items, feedback] = await Promise.all([
-      db.select().from(products).where(eq(products.status, 'Aktif')).orderBy(desc(products.createdAt)),
-      db.select().from(reviews).where(eq(reviews.status, 'Approved')).orderBy(desc(reviews.createdAt)).limit(3),
-    ]);
+    const productsRef = collection(db, 'products');
+    const qProducts = query(productsRef, where('status', '==', 'Aktif'), orderBy('createdAt', 'desc'));
+    const prodSnap = await getDocs(qProducts);
+    const items = prodSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    const reviewsRef = collection(db, 'reviews');
+    const qReviews = query(reviewsRef, where('status', '==', 'Approved'), orderBy('createdAt', 'desc'), limit(3));
+    const revSnap = await getDocs(qReviews);
+    const feedback = revSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     return { items, feedback };
-  } catch {
+  } catch (error) {
+    console.error("Gagal load data dari Firestore:", error);
     // Home must still render when the database is unreachable.
     return { items: [], feedback: [] };
   }

@@ -1,43 +1,41 @@
 'use server';
 
-import { db } from '../../db';
-import { orders, promocodes, products, users, drafts } from '../../db/schema';
-import { eq, desc, sql, and, or } from 'drizzle-orm';
-import { createClient } from '../../lib/supabase/server';
-import { ensureUserRow, requireRole } from '../../lib/auth';
+import { db } from '../../lib/firebase';
+import { collection, doc, getDocs, getDoc, setDoc, updateDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
+import { ensureUserRow, requireRole, getSessionUser } from '../../lib/auth';
 import { calculateOrderPricing } from '../../lib/pricingEngine';
 
 export async function createOrder(data) {
   try {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: 'Unauthorized' };
-    await ensureUserRow(user);
+    const authUser = await getSessionUser();
+    if (!authUser) return { success: false, error: 'Unauthorized' };
+    await ensureUserRow(authUser);
+
+    const userSnap = await getDoc(doc(db, 'users', authUser.id));
+    const user = userSnap.exists() ? { id: authUser.id, ...userSnap.data() } : { id: authUser.id };
+
+    let formattedPhone = data.contactPhone || user.phone || '';
+    if (formattedPhone && !formattedPhone.startsWith('+62')) {
+      if (formattedPhone.startsWith('0')) formattedPhone = '+62' + formattedPhone.slice(1);
+      else formattedPhone = '+62' + formattedPhone;
+    }
 
     // Sync phone & name if provided
-    if (data.contactName || data.contactPhone) {
-      let phoneToSave = data.contactPhone;
-      if (phoneToSave && !phoneToSave.startsWith('+62')) {
-        if (phoneToSave.startsWith('0')) phoneToSave = '+62' + phoneToSave.slice(1);
-        else phoneToSave = '+62' + phoneToSave;
-      }
+    if (data.contactName || formattedPhone) {
       const updateData = {};
-      const meta = {};
-      if (data.contactName) { updateData.name = data.contactName; meta.full_name = data.contactName; }
-      if (phoneToSave) { updateData.phone = phoneToSave; meta.phone = phoneToSave; }
-      await db.update(users).set(updateData).where(eq(users.id, user.id));
-      if (Object.keys(meta).length > 0) {
-        await supabase.auth.updateUser({ data: meta });
+      if (data.contactName) { updateData.name = data.contactName; }
+      if (formattedPhone) { updateData.phone = formattedPhone; }
+      if (Object.keys(updateData).length > 0) {
+        await updateDoc(doc(db, 'users', user.id), updateData);
       }
     }
 
-    const orderId = data.id || crypto.randomUUID(); // Pakai ID dari payload jika ada
+    const orderId = data.id || crypto.randomUUID();
     
-    // Pastikan eventDate jadi object Date agar sesuai dengan kolom timestamp
-    let parsedEventDate = new Date();
+    let parsedEventDate = new Date().toISOString();
     if (data.eventDate) {
       const d = new Date(data.eventDate);
-      if (!isNaN(d.getTime())) parsedEventDate = d;
+      if (!isNaN(d.getTime())) parsedEventDate = d.toISOString();
     }
 
     let orderAgentId = null;
@@ -46,39 +44,40 @@ export async function createOrder(data) {
     if (data.promoApplied && data.promoApplied.code) {
       hasPromo = true;
       promoCodeStr = data.promoApplied.code;
-      const promoInfo = await db.select().from(promocodes).where(eq(promocodes.code, data.promoApplied.code));
-      if (promoInfo.length > 0) {
-        orderAgentId = promoInfo[0].agentId;
+      const promoQuery = query(collection(db, 'promocodes'), where('code', '==', data.promoApplied.code));
+      const promoSnap = await getDocs(promoQuery);
+      if (!promoSnap.empty) {
+        const promoDoc = promoSnap.docs[0];
+        orderAgentId = promoDoc.data().agentId;
+        
+        // Update quota usage
+        await updateDoc(promoDoc.ref, { used: (promoDoc.data().used || 0) + 1 });
       }
     }
 
-    // --- PONYTAIL FIX: Ambil basePrice dari DB, JANGAN percaya client ---
     let basePrice = 127000;
     if (data.themeId) {
-      const prod = await db.select({ price: products.price }).from(products).where(eq(products.id, data.themeId));
-      if (prod.length > 0) basePrice = prod[0].price;
+      const pSnap = await getDoc(doc(db, 'products', data.themeId));
+      if (pSnap.exists()) basePrice = pSnap.data().price || 127000;
     }
-    const addonPrice = data.addonPrice || 0; // TODO: Hitung addon dari DB jika perlu
+    const addonPrice = data.addonPrice || 0;
     const pricing = calculateOrderPricing(basePrice, addonPrice, hasPromo);
 
-    await db.insert(orders).values({
+    const orderData = {
       id: orderId,
       userId: user.id,
       themeId: data.themeId || 'unknown',
       themeName: data.themeName || data.themeTitle || 'Dear Adore Theme',
-      
-      // -- Kolom Ekstraksi Baru --
-      clientName: data.birthdayPersonName || data.eventName || 'Tanpa Nama',
+      clientName: data.contactName || user.displayName || user.name || data.birthdayPersonName || data.eventName || 'Tanpa Nama',
+      clientEmail: user.email || 'Tanpa Email',
+      clientWa: formattedPhone || 'Tanpa WA',
       eventType: data.eventType || data.themeCategory || 'Lainnya',
       eventDate: parsedEventDate,
       paymentMethod: data.paymentMethod?.id || data.paymentMethod || 'manual',
       paymentStatus: data.paymentStatus || 'unpaid',
       agentId: orderAgentId,
-      
       packageData: data,
       clientPhotos: data.clientPhotos || [],
-      
-      // -- KEUANGAN (Dihitung Server) --
       basePrice: pricing.basePrice,
       discountAmount: pricing.discountAmount,
       discountedBase: pricing.discountedBase,
@@ -88,59 +87,26 @@ export async function createOrder(data) {
       totalPrice: pricing.grandTotal,
       commissionAmount: pricing.commissionAmount,
       promoCode: promoCodeStr,
-
       status: data.status || 'pending',
       isPriority: data.isPriority || false,
-    }).onConflictDoUpdate({
-      target: orders.id,
-      set: {
-        themeId: data.themeId || 'unknown',
-        themeName: data.themeName || data.themeTitle || 'Dear Adore Theme',
-        clientName: data.birthdayPersonName || data.eventName || 'Tanpa Nama',
-        eventType: data.eventType || data.themeCategory || 'Lainnya',
-        eventDate: parsedEventDate,
-        paymentMethod: data.paymentMethod?.id || data.paymentMethod || 'manual',
-        paymentStatus: data.paymentStatus || 'unpaid',
-        agentId: orderAgentId,
-        packageData: data,
-        clientPhotos: data.clientPhotos || [],
-        
-        basePrice: pricing.basePrice,
-        discountAmount: pricing.discountAmount,
-        discountedBase: pricing.discountedBase,
-        addonPrice: pricing.addonTotal,
-        subtotal: pricing.subtotal,
-        serviceFee: pricing.displayedServiceFee,
-        totalPrice: pricing.grandTotal,
-        commissionAmount: pricing.commissionAmount,
-        promoCode: promoCodeStr,
-        
-        status: data.status || 'pending',
-        isPriority: data.isPriority || false,
-      }
-    });
+      createdAt: new Date().toISOString()
+    };
 
-    if (data.promoApplied && data.promoApplied.code) {
-      await db.update(promocodes)
-        .set({ used: sql`used + 1` })
-        .where(eq(promocodes.code, data.promoApplied.code));
-    }
+    await setDoc(doc(db, 'orders', orderId), orderData, { merge: true });
 
     return { success: true, orderId };
   } catch (error) {
-    console.error('Error creating order:', error);
     return { success: false, error: error.message };
   }
 }
 
 export async function getUserOrders() {
   try {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) return { success: false, data: [] };
-    const data = await db.select().from(orders)
-      .where(eq(orders.userId, user.id))
-      .orderBy(desc(orders.createdAt));
+    const q = query(collection(db, 'orders'), where('userId', '==', user.id), orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() }))))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -150,10 +116,11 @@ export async function getUserOrders() {
 export async function getOrders() {
   try {
     await requireRole(['admin', 'agent', 'finance']);
-    const allOrders = await db.select().from(orders).orderBy(desc(orders.createdAt));
-    return { success: true, data: allOrders };
+    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() }))))));
+    return { success: true, data };
   } catch (error) {
-    console.error('Error fetching orders:', error);
     return { success: false, error: error.message };
   }
 }
@@ -161,32 +128,22 @@ export async function getOrders() {
 export async function updateOrderStatus(orderId, newStatus) {
   try {
     await requireRole(['admin', 'agent', 'sales']);
-    await db.update(orders)
-      .set({ status: newStatus })
-      .where(eq(orders.id, orderId));
+    await updateDoc(doc(db, 'orders', orderId), { status: newStatus });
     return { success: true };
   } catch (error) {
-    console.error('Error updating order:', error);
     return { success: false, error: error.message };
   }
 }
 
 export async function confirmOrderPayment(orderId) {
   try {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: 'Unauthorized' };
     await requireRole(['admin', 'agent', 'sales']);
-    
-    await db.update(orders)
-      .set({ 
-        paymentStatus: 'paid',
-        status: 'proses' 
-      })
-      .where(eq(orders.id, orderId));
+    await updateDoc(doc(db, 'orders', orderId), { 
+      paymentStatus: 'paid',
+      status: 'proses' 
+    });
     return { success: true };
   } catch (error) {
-    console.error('Error confirming payment:', error);
     return { success: false, error: error.message };
   }
 }
@@ -194,11 +151,12 @@ export async function confirmOrderPayment(orderId) {
 export async function updateOrderLinks(orderId, previewUrl, rsvpUrl, deadlineDays, packageData) {
   try {
     const authUser = await requireRole(['admin', 'agent']);
+    const snap = await getDoc(doc(db, 'orders', orderId));
+    if (!snap.exists()) throw new Error('Not found');
+    const orderData = snap.data();
     
-    let whereClause = eq(orders.id, orderId);
-    if (authUser.dbRole === 'agent') {
-      // PONYTAIL FIX: Agent hanya bisa update order-nya sendiri
-      whereClause = and(eq(orders.id, orderId), eq(orders.agentId, authUser.id));
+    if (authUser.dbRole === 'agent' && orderData.agentId !== authUser.id) {
+      throw new Error('Unauthorized');
     }
 
     const updatedPackageData = {
@@ -207,19 +165,14 @@ export async function updateOrderLinks(orderId, previewUrl, rsvpUrl, deadlineDay
       rsvpUrl,
       deadlineDays
     };
-    
-    // Automatically set status to selesai if both links exist
     const newStatus = (previewUrl && rsvpUrl) ? 'selesai' : 'proses';
     
-    await db.update(orders)
-      .set({ 
-        packageData: updatedPackageData,
-        status: newStatus 
-      })
-      .where(whereClause);
+    await updateDoc(doc(db, 'orders', orderId), { 
+      packageData: updatedPackageData,
+      status: newStatus 
+    });
     return { success: true };
   } catch (error) {
-    console.error('Error updating order links:', error);
     return { success: false, error: error.message };
   }
 }
@@ -227,32 +180,25 @@ export async function updateOrderLinks(orderId, previewUrl, rsvpUrl, deadlineDay
 export async function deleteOrder(orderId) {
   try {
     const authUser = await requireRole(['admin', 'agent', 'sales', 'user']);
-    let whereClause = eq(orders.id, orderId);
+    const snap = await getDoc(doc(db, 'orders', orderId));
+    if (!snap.exists()) return { success: true };
+    const orderData = snap.data();
 
-    if (authUser.dbRole === 'user') {
-      whereClause = and(eq(orders.id, orderId), eq(orders.userId, authUser.id));
-    } else if (authUser.dbRole === 'agent' || authUser.dbRole === 'sales') {
-      whereClause = and(
-        eq(orders.id, orderId),
-        or(eq(orders.agentId, authUser.id), eq(orders.userId, authUser.id))
-      );
+    if (authUser.dbRole === 'user' && orderData.userId !== authUser.id) throw new Error('Unauthorized');
+    if ((authUser.dbRole === 'agent' || authUser.dbRole === 'sales') && orderData.agentId !== authUser.id && orderData.userId !== authUser.id) {
+      throw new Error('Unauthorized');
     }
     
-    await db.delete(orders).where(whereClause);
-
-    // Hapus juga dari tabel drafts jika ID draf tersimpan di tabel drafts
-    let draftWhere = or(eq(drafts.id, orderId), eq(drafts.themeId, orderId));
-    if (authUser.dbRole !== 'admin') {
-      draftWhere = and(
-        or(eq(drafts.id, orderId), eq(drafts.themeId, orderId)),
-        eq(drafts.userId, authUser.id)
-      );
+    await deleteDoc(doc(db, 'orders', orderId));
+    
+    // Also try deleting drafts with same ID
+    const draftSnap = await getDoc(doc(db, 'drafts', orderId));
+    if (draftSnap.exists()) {
+       await deleteDoc(doc(db, 'drafts', orderId));
     }
-    await db.delete(drafts).where(draftWhere);
-
+    
     return { success: true };
   } catch (error) {
-    console.error('Error deleting order/draft:', error);
     return { success: false, error: error.message };
   }
 }

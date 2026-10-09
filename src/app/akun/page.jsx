@@ -35,7 +35,8 @@ import {
   Download,
   Users
 } from 'lucide-react';
-import { createClient } from '../../lib/supabase/client';
+import { auth } from '../../lib/firebase';
+import { onAuthStateChanged, updateProfile, updatePassword, signOut } from 'firebase/auth';
 import LoginView from '../../components/LoginView';
 import { AdoreCache } from '../../lib/adoreCache';
 
@@ -75,14 +76,18 @@ export default function AkunPage() {
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
+        const user = await new Promise(resolve => {
+           const unsubscribe = onAuthStateChanged(auth, u => {
+             unsubscribe();
+             resolve(u);
+           });
+        });
 
         if (user) {
-          setUserName(user.user_metadata?.full_name || user.email.split('@')[0]);
+          setUserName(user.displayName || user.email.split('@')[0]);
           setUserEmail(user.email);
-          setUserPhone(user.user_metadata?.phone || '');
-          setUserAvatar(user.user_metadata?.avatar_url || '');
+          setUserPhone('');
+          setUserAvatar(user.photoURL || '');
           setIsLoggedIn(true);
         } else {
           setIsLoggedIn(false);
@@ -317,16 +322,14 @@ export default function AkunPage() {
     setUserEmail(finalEmail);
     setUserPhone(finalPhone);
     try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      const updateData = {};
-      if (tempPassword) updateData.password = tempPassword;
-      updateData.data = { full_name: finalName, phone: finalPhone };
+      const user = auth.currentUser;
       
       if (user) {
         // Update auth user
-        await supabase.auth.updateUser(updateData);
+        await updateProfile(user, { displayName: finalName });
+        if (tempPassword) {
+           await updatePassword(user, tempPassword);
+        }
         
         // Update public.users
 
@@ -889,8 +892,8 @@ export default function AkunPage() {
                   }}
                   onClick={async () => {
                     if(confirm('Apakah Anda yakin ingin keluar?')) {
-                      const supabase = createClient();
-                      await supabase.auth.signOut();
+                      await signOut(auth);
+                      document.cookie = 'firebase_uid=; path=/; max-age=0';
                       window.location.href = '/akun';
                     }
                   }}
