@@ -1,6 +1,7 @@
 import './globals.css';
 import { Poppins } from 'next/font/google';
 import Navbar from '../components/Navbar';
+import Footer from '../components/Footer';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -32,6 +33,7 @@ export default function RootLayout({ children }) {
       <body>
         <div className="app-root" style={{ fontFamily: 'var(--font-poppins), sans-serif' }}>
           <main>{children}</main>
+          <Footer />
           <Navbar />
         </div>
       </body>

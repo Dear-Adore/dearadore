@@ -1,8 +1,8 @@
 'use client';
 import { getUserOrders } from '../actions/orderActions';
-import { getUserFavorites, getUserDrafts } from '../actions/projectActions';
+import { getUserFavorites, getUserDrafts, getUserPromocodes } from '../actions/projectActions';
 import { getProducts } from '../actions/adminActions';
-import { syncUserToDatabase } from '../actions/userActions';
+import { syncUserToDatabase, claimPromoCode } from '../actions/userActions';
 
 
 import { useState, useEffect } from 'react';
@@ -14,7 +14,6 @@ import {
   Copy,
   Check,
   Plus,
-  ArrowUpRight,
   Calendar,
   Share2,
   X,
@@ -33,8 +32,11 @@ import {
   Zap,
   LogOut,
   Download,
-  Users
+  Users,
+  ChevronDown,
+  Tag
 } from 'lucide-react';
+import ProjectThumbnail from '../../components/ProjectThumbnail';
 import { auth } from '../../lib/firebase';
 import { onAuthStateChanged, updateProfile, updatePassword, signOut } from 'firebase/auth';
 import LoginView from '../../components/LoginView';
@@ -51,10 +53,12 @@ const defaultProjects = {
   proses: [],
   favorit: [],
   selesai: [],
+  promo: [],
 };
 
 export default function AkunPage() {
   const [activeTab, setActiveTab] = useState('selesai');
+  const [isPromoOpen, setIsPromoOpen] = useState(false);
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userAvatar, setUserAvatar] = useState('');
@@ -107,17 +111,46 @@ export default function AkunPage() {
 
 
 
-        const [ordersRes, draftsRes, favsRes, productsRes] = await Promise.all([
+        const [ordersRes, draftsRes, favsRes, productsRes, promosRes] = await Promise.all([
           getUserOrders(),
           getUserDrafts(),
           getUserFavorites(),
           getProducts(),
+          getUserPromocodes(),
         ]);
         
         let dynamicProses = [];
         let dynamicSelesai = [];
         let dynamicDitunda = [];
         let dynamicFavorit = [];
+        let dynamicPromo = [];
+
+        if (promosRes.success && Array.isArray(promosRes.data)) {
+          dynamicPromo = promosRes.data.filter(p => {
+            const remaining = p.assignedEmail ? ((p.quota || 1) - (p.used || 0)) : (p.usedByMe ? 0 : 1);
+            return remaining > 0;
+          });
+        }
+
+        // Auto-claim promo if query param exists
+        if (typeof window !== 'undefined') {
+          const urlParams = new URLSearchParams(window.location.search);
+          const promoToClaim = urlParams.get('claimPromo');
+          if (promoToClaim) {
+            const claimRes = await claimPromoCode(promoToClaim);
+            if (claimRes.success) {
+              const newPromosRes = await getUserPromocodes();
+              if (newPromosRes.success && Array.isArray(newPromosRes.data)) {
+                dynamicPromo = newPromosRes.data.filter(p => {
+                  const remaining = p.assignedEmail ? ((p.quota || 1) - (p.used || 0)) : (p.usedByMe ? 0 : 1);
+                  return remaining > 0;
+                });
+              }
+              // Clean up URL
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+          }
+        }
 
         if (ordersRes.success && Array.isArray(ordersRes.data)) {
           ordersRes.data.forEach((o) => {
@@ -214,6 +247,7 @@ export default function AkunPage() {
               dynamicFavorit.push({
                 id: f.id,
                 themeId: prod.id,
+                slug: prod.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''),
                 title: prod.name,
                 theme: prod.category,
                 createdAt: dateStr,
@@ -258,6 +292,7 @@ export default function AkunPage() {
           ditunda: dynamicDitunda,
           selesai: sortedPesanan,
           favorit: dynamicFavorit,
+          promo: dynamicPromo,
         };
         
         setAllProjects(newProjects);
@@ -402,12 +437,6 @@ export default function AkunPage() {
              <div style={{ height: '250px', borderRadius: '20px', background: '#F3F4F6', animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
           </section>
         </div>
-        <style dangerouslySetInnerHTML={{__html: `
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .5; }
-          }
-        `}} />
       </div>
     );
   }
@@ -466,34 +495,101 @@ export default function AkunPage() {
 
       </section>
 
-      {/* 2. SECTION HEADER & SEGMENTED STATUS PILL BAR */}
-      <div className="account-section-header">
-
-        <div className="account-status-tabs-bar" role="tablist">
-          {statusTabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            const count = (allProjects[tab.id] || []).length;
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                type="button"
-                className={`account-status-tab-btn ${isActive ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <span>{tab.label}</span>
-                <span style={{ fontSize: '0.75rem', opacity: isActive ? 1 : 0.75, fontWeight: 700 }}>
-                  ({count})
-                </span>
-              </button>
-            );
-          })}
+      <div className="account-dashboard-layout">
+        
+        {/* PROMO SIDEBAR / MOBILE DROPDOWN */}
+        <div className="promo-sidebar">
+          <div 
+             className="promo-header" 
+             onClick={() => setIsPromoOpen(!isPromoOpen)}
+          >
+             <h3 style={{ margin: 0, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700 }}>
+               Kode Promo
+               <span style={{ fontSize: '0.75rem', background: '#F3F4F6', color: '#6B7280', padding: '0.2rem 0.6rem', borderRadius: '12px' }}>
+                 {(allProjects.promo || []).length}
+               </span>
+             </h3>
+             <ChevronDown size={18} style={{ transform: isPromoOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: '0.3s' }} className="mobile-only-icon" color="#6B7280" />
+          </div>
+          
+          <div className={`promo-list ${isPromoOpen ? 'open' : ''}`}>
+             {(allProjects.promo || []).length === 0 ? (
+                <p style={{ fontSize: '0.8rem', color: '#6B7280', margin: '1rem 0 0', textAlign: 'center' }}>Belum ada kode promo khusus untuk Anda.</p>
+             ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                  {(allProjects.promo || []).map(project => (
+                    <div key={project.id} style={{ background: '#FFFFFF', border: '1px dashed #D1D5DB', borderRadius: '20px', padding: '1rem' }}>
+                      <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', color: '#111827', fontWeight: 800 }}>{project.code}</h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem', color: '#4B5563', marginBottom: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Zap size={12} color="#F59E0B" />
+                          <span>
+                            {project.promoType === 'fixed' 
+                              ? `Diskon Rp ${(project.discountAmount || 0).toLocaleString('id-ID')}`
+                              : project.promoType === 'percentage_capped'
+                              ? `Diskon ${project.discountPercent}% (Max Rp ${(project.maxDiscountAmount || 0).toLocaleString('id-ID')})`
+                              : `Diskon ${project.discountPercent || 20}%`}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <CheckCircle2 size={12} color="#10B981" />
+                          <span>Sisa {project.assignedEmail ? ((project.quota || 1) - (project.used || 0)) : (project.usedByMe ? 0 : 1)}x pakai</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="account-action-pill primary"
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', padding: '0.4rem', fontSize: '0.8rem' }}
+                        onClick={() => handleCopyLink(project.id, project.code)}
+                      >
+                        {copiedId === project.id ? (
+                          <>
+                            <Check size={13} />
+                            <span>Tersalin</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={13} />
+                            <span>Salin Kode</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+             )}
+          </div>
         </div>
-      </div>
 
-      {/* 3. PROJECT CARDS RESPONSIVE GRID */}
-      <section>
+        {/* MAIN PROJECTS CONTENT */}
+        <div className="main-projects-content">
+          {/* 2. SECTION HEADER & SEGMENTED STATUS PILL BAR */}
+          <div className="account-section-header" style={{ marginBottom: '1.25rem' }}>
+            <div className="account-status-tabs-bar" role="tablist">
+              {statusTabs.map((tab) => {
+                const isActive = activeTab === tab.id;
+                const count = (allProjects[tab.id] || []).length;
+                return (
+                  <button
+                    key={tab.id}
+                    role="tab"
+                    aria-selected={isActive}
+                    type="button"
+                    className={`account-status-tab-btn ${isActive ? 'active' : ''}`}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    <span>{tab.label}</span>
+                    <span style={{ fontSize: '0.75rem', opacity: isActive ? 1 : 0.75, fontWeight: 700 }}>
+                      ({count})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 3. PROJECT CARDS RESPONSIVE GRID */}
+          <section>
         
           <div
             key={activeTab}
@@ -534,46 +630,55 @@ export default function AkunPage() {
             ) : (
               currentProjects.map((project) => (
                 <div key={project.id} className="account-project-card">
+                  <ProjectThumbnail project={project} activeTab={activeTab} />
                   <div style={{ minWidth: 0 }}>
                     {/* Card Header */}
-                    <div style={{ fontSize: '0.75rem', color: '#6B7280', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontFamily: 'monospace' }}>
-                      <span style={{ fontWeight: 600, color: '#374151' }}>ID:</span> {project.id}
-                    </div>
+                    {activeTab !== 'favorit' && (
+                      <div style={{ fontSize: '0.75rem', color: '#6B7280', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontFamily: 'monospace' }}>
+                        <span style={{ fontWeight: 600, color: '#374151' }}>ID:</span> {project.id}
+                      </div>
+                    )}
 
                     {/* Title */}
-                    <h3 className="account-card-title" title={project.title}>
-                      {project.title}
+                    <h3 className="account-card-title" title={project.title || project.code}>
+                      {project.title || project.code}
                     </h3>
 
                     {/* Meta info: Date & Venue */}
-                    <div className="account-card-meta">
-                      <div className="account-meta-item">
-                        <Calendar size={14} color="#6B7280" style={{ flexShrink: 0 }} />
-                        <span>{project.eventDate || 'Jadwal Acara'}</span>
-                      </div>
-                      {project.eventVenue && (
+                    {activeTab !== 'favorit' ? (
+                      <div className="account-card-meta">
                         <div className="account-meta-item">
-                          <MapPin size={14} color="#6B7280" style={{ flexShrink: 0 }} />
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {project.eventVenue}
-                          </span>
+                          <Calendar size={14} color="#6B7280" style={{ flexShrink: 0 }} />
+                          <span>{project.eventDate || 'Jadwal Acara'}</span>
                         </div>
-                      )}
-                    </div>
-
-
+                        {project.eventVenue && (
+                          <div className="account-meta-item">
+                            <MapPin size={14} color="#6B7280" style={{ flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {project.eventVenue}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="account-card-meta">
+                        <div className="account-meta-item">
+                          <Tag size={14} color="#6B7280" style={{ flexShrink: 0 }} />
+                          <span>Kategori: {project.theme || 'Umum'}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* ACTION BUTTONS (Optimized for Mobile 2-Row / Desktop 1-Row) */}
                   <div className="account-card-actions">
                     {activeTab === 'favorit' ? (
                       <Link
-                        href={`/katalog/${project.themeId || 'theme-01'}`}
+                        href={`/katalog/${project.slug || 'theme-01'}`}
                         className="account-action-pill primary"
                         style={{ width: '100%', textDecoration: 'none', justifyContent: 'center' }}
                       >
                         <span>Lihat Tema</span>
-                        <ArrowUpRight size={13} />
                       </Link>
                     ) : activeTab === 'ditunda' ? (
                       <button
@@ -583,7 +688,6 @@ export default function AkunPage() {
                         onClick={() => handleContinueDraft(project)}
                       >
                         <span>Lanjutkan</span>
-                        <ArrowUpRight size={13} />
                       </button>
                     ) : activeTab === 'selesai' && project.orderStatus !== 'selesai' && project.orderStatus !== 'completed' ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', width: '100%' }}>
@@ -599,32 +703,33 @@ export default function AkunPage() {
                           type="button"
                           className="account-action-pill primary"
                           style={{ background: '#F59E0B', borderColor: '#F59E0B', color: '#FFFFFF', width: '100%' }}
-                          onClick={() => alert('Fitur Prioritaskan Antrean (Tonton Iklan) akan segera hadir!')}
+                          onClick={() => alert('Fitur Prioritas Antrean (Tonton Iklan) akan segera hadir!')}
                         >
                           <Zap size={14} />
-                          <span>Prioritaskan (Tonton Iklan)</span>
+                          <span>Prioritas (Tonton Iklan)</span>
                         </button>
                       </div>
                     ) : activeTab === 'selesai' ? (
-                      <>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
                         <a
                           href={project.previewUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="account-action-pill primary"
                           title="Buka Preview Live Undangan"
+                          style={{ width: '100%', justifyContent: 'center' }}
                         >
                           <Eye size={13} />
                           <span>Preview Live</span>
-                          <ArrowUpRight size={11} />
                         </a>
 
-                        <div className="account-action-subrow">
+                        <div className="account-action-subrow" style={{ display: 'flex', width: '100%', gap: '0.5rem' }}>
                           <button
                             type="button"
                             className="account-action-pill"
                             onClick={() => handleCopyLink(project.id, project.previewUrl)}
                             title="Salin Tautan Undangan"
+                            style={{ flex: 1, justifyContent: 'center' }}
                           >
                             {copiedId === project.id ? (
                               <>
@@ -645,13 +750,13 @@ export default function AkunPage() {
                             rel="noopener noreferrer"
                             className="account-action-pill"
                             title="Buka Data RSVP"
-                            style={{ textDecoration: 'none', color: 'inherit' }}
+                            style={{ flex: 1, textDecoration: 'none', color: 'inherit', justifyContent: 'center' }}
                           >
                             <Users size={13} />
                             <span>RSVP</span>
                           </a>
                         </div>
-                      </>
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -659,7 +764,9 @@ export default function AkunPage() {
             )}
           </div>
         
-      </section>
+        </section>
+        </div>
+      </div>
 
       {/* DETAIL MODAL FOR ORDER IN AKUN */}
       
@@ -927,8 +1034,7 @@ export default function AkunPage() {
             </div>
           </div>
         )}
-      
+      </div>
     </div>
-  </div>
   );
 }

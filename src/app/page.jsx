@@ -9,13 +9,14 @@ import {
   CreditCard,
   MessageCircle,
   Music,
-  Palette,
-  PenLine,
+  ShoppingBag,
+  ShoppingCart,
   Star,
   Timer,
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { DEFAULT_ADDITIONAL_FEATURES, DEFAULT_ESSENTIAL_FEATURES } from '../data/katalogData';
+import PromoBanner from '../components/PromoBanner';
 
 export const metadata = {
   title: 'Dear Adore — Undangan Digital Eksklusif',
@@ -28,12 +29,12 @@ export const revalidate = 60;
 
 const steps = [
   {
-    icon: Palette,
+    icon: ShoppingBag,
     title: 'Pilih Tema',
     text: 'Jelajahi katalog tema untuk berbagai acara, lalu lihat preview-nya persis seperti yang akan dilihat tamu Anda.',
   },
   {
-    icon: PenLine,
+    icon: ShoppingCart,
     title: 'Isi Detail',
     text: 'Lengkapi fitur esensial seperti detail acara, RSVP, musik, dan video, lalu tambahkan fitur opsional sesuai kebutuhan.',
   },
@@ -137,6 +138,8 @@ export default async function Home() {
       {/* FEATURED COLLECTION (live) */}
       {featured.length > 0 && (
         <section className="home-section" aria-labelledby="home-koleksi-title">
+          <PromoBanner />
+          
           <div className="home-head">
             <div>
               <p className="home-kicker">Koleksi terbaru</p>
@@ -295,7 +298,6 @@ export default async function Home() {
           </Link>
         </div>
 
-        <p className="home-foot">© {new Date().getFullYear()} Dear Adore · Undangan Digital</p>
       </section>
     </div>
   );

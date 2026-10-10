@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@keyframes spin { 
+  0% { transform: rotate(0deg); } 
+  100% { transform: rotate(360deg); } 
+}
+
 :root {
   --color-primary-light: #B91C1C;
   --color-primary: #7F1D1D;
@@ -38,7 +43,7 @@
 body {
   font-family: var(--font-sans);
   color: var(--text-main);
-  background: #FFFFFF;
+  background: rgb(255, 255, 255);
   min-height: 100vh;
   overflow-x: hidden;
   position: relative;
@@ -96,6 +101,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   flex-direction: column;
   position: relative;
   z-index: 1;
+  background: rgb(255, 255, 255);
 }
 
 /* Luxury typography styling */
@@ -733,7 +739,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(65px, 1fr));
   gap: 0.2rem;
-  background: #E5E7EB;
+  background: #F9FAFB;
   border: 1px solid #E5E7EB;
   border-radius: 20px;
   padding: 0.3rem;
@@ -742,8 +748,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
 
 @media (min-width: 768px) {
   .account-status-tabs-bar {
-    width: max-content;
-    min-width: 400px;
+    width: 100%;
   }
 }
 
@@ -1149,10 +1154,10 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   position: absolute;
   top: calc(100% + 0.65rem);
   right: 0;
-  background: rgba(255, 252, 248, 0.96);
+  background: #F9FAFB;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.95);
+  border: 1px solid #E5E7EB;
   border-radius: 16px;
   box-shadow: 0 16px 36px -8px rgba(158, 59, 59, 0.22);
   z-index: 100;
@@ -1555,7 +1560,7 @@ html {
 
 .atm-page-root {
   min-height: 100vh;
-  background-color: #FAF6F0;
+  background-color: rgb(255, 255, 255);
   color: #2D1414;
   font-family: var(--font-sans);
   position: relative;
@@ -6964,5 +6969,63 @@ html {
   text-align: center;
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+/* Account Page Styles */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .5; }
+}
+.account-dashboard-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.promo-sidebar {
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 20px;
+  padding: 1rem;
+  height: fit-content;
+}
+.promo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+.promo-list {
+  display: none;
+}
+.promo-list.open {
+  display: block;
+}
+.main-projects-content {
+  flex: 1;
+  min-width: 0;
+}
+@media (min-width: 768px) {
+  .account-dashboard-layout {
+    display: grid;
+    grid-template-columns: 3fr 1fr;
+    align-items: flex-start;
+    gap: 2rem;
+  }
+  .promo-sidebar {
+    order: 2;
+  }
+  .main-projects-content {
+    order: 1;
+  }
+  .promo-list {
+    display: block !important;
+  }
+  .mobile-only-icon {
+    display: none !important;
+  }
+  .promo-header {
+    cursor: default;
+  }
 }
 

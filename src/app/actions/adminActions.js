@@ -10,7 +10,7 @@ export async function getProducts() {
   try {
     const q = query(collection(db, 'products'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))))));
+    const data = JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -66,7 +66,7 @@ export async function updateProduct(id, name, category, price, status, previewIm
 export async function getAddons() {
   try {
     const snap = await getDocs(collection(db, 'pricing_addons'));
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))))));
+    const data = JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -96,12 +96,12 @@ export async function createAddon(name, price) {
   }
 }
 
-export async function addPromocode(code, discountPercent, quota) {
+export async function addPromocode(code, promoType, discountPercent, discountAmount, maxDiscountAmount, quota, assignedEmail = '') {
   try {
     await requireRole(['admin', 'finance']);
     const id = crypto.randomUUID();
     await setDoc(doc(db, 'promocodes', id), {
-      id, code, discountPercent, quota, used: 0, createdAt: new Date().toISOString()
+      id, code, promoType, discountPercent, discountAmount, maxDiscountAmount, quota, assignedEmail, used: 0, createdAt: new Date().toISOString()
     });
     return { success: true };
   } catch (error) {
@@ -113,7 +113,7 @@ export async function getPromocodes() {
   try {
     await requireRole(['admin', 'finance']);
     const snap = await getDocs(collection(db, 'promocodes'));
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))))));
+    const data = JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -139,7 +139,7 @@ export async function getReviews() {
     }
 
     const snap = await getDocs(q);
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))))));
+    const data = JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -162,7 +162,7 @@ export async function getPayouts() {
     await requireRole(['admin', 'finance']);
     const q = query(collection(db, 'payouts'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))))));
+    const data = JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -187,7 +187,7 @@ export async function getExpenses() {
     await requireRole(['admin', 'finance']);
     const q = query(collection(db, 'expenses'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))))));
+    const data = JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };

@@ -7,7 +7,9 @@ import React, { useMemo, useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Sparkles, Eye, Clock, Check, Plus, Heart, Pencil, Share2 } from 'lucide-react';
+import { ArrowLeft, Sparkles, Eye, Clock, Check, Plus, Heart, Pencil, Share2, ShoppingCart } from 'lucide-react';
+import { auth } from '../../../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import {
   DEFAULT_ESSENTIAL_FEATURES,
   DEFAULT_ADDITIONAL_FEATURES,
@@ -29,6 +31,14 @@ export default function ProductDetail({ params }) {
   const [features, setFeatures] = useState({ essential: [...DEFAULT_ESSENTIAL_FEATURES], additional: [...DEFAULT_ADDITIONAL_FEATURES] });
   const [isLiked, setIsLiked] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     async function loadProduct() {
@@ -404,11 +414,12 @@ export default function ProductDetail({ params }) {
       <div className="detail-navbar-wrapper">
         <div className="detail-navbar">
           <Link
-            href={`/buat-undangan?theme=${product.id}`}
+            href={user ? `/buat-undangan?theme=${product.id}` : `/akun?next=${encodeURIComponent('/buat-undangan?theme=' + product.id)}`}
             className="detail-nav-btn primary"
+            style={{ backgroundColor: '#10B981', color: '#FFFFFF', border: 'none' }}
           >
-            <Pencil size={16} />
-            <span>Buat</span>
+            <ShoppingCart size={16} />
+            <span>Beli</span>
           </Link>
           <button
             onClick={handleLikeToggle}

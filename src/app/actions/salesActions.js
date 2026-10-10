@@ -40,7 +40,7 @@ const ordersByCode = async (code) => {
   const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
   const snap = await getDocs(q);
   // Manual filter because Firestore json subfield queries are limited
-  return JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() }))))))
+  return JSON.parse(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
     .filter(o => o.packageData?.promoApplied?.code === code);
 };
 

@@ -37,10 +37,15 @@ export async function createOrder(data) {
       const d = new Date(data.eventDate);
       if (!isNaN(d.getTime())) parsedEventDate = d.toISOString();
     }
+    
+    const orderSnap = await getDoc(doc(db, 'orders', orderId));
+    const isNewOrder = !orderSnap.exists();
+    const existingOrder = isNewOrder ? null : orderSnap.data();
 
     let orderAgentId = null;
     let promoCodeStr = null;
     let hasPromo = false;
+    
     if (data.promoApplied && data.promoApplied.code) {
       hasPromo = true;
       promoCodeStr = data.promoApplied.code;
@@ -48,10 +53,16 @@ export async function createOrder(data) {
       const promoSnap = await getDocs(promoQuery);
       if (!promoSnap.empty) {
         const promoDoc = promoSnap.docs[0];
-        orderAgentId = promoDoc.data().agentId;
+        orderAgentId = promoDoc.data().agentId || null;
         
-        // Update quota usage
-        await updateDoc(promoDoc.ref, { used: (promoDoc.data().used || 0) + 1 });
+        // Update quota usage ONLY if it's a new order or the promo wasn't applied to this order before
+        if (isNewOrder || existingOrder?.promoCode !== promoCodeStr) {
+          const { increment, arrayUnion } = await import('firebase/firestore');
+          await updateDoc(promoDoc.ref, { used: increment(1) });
+          if (user && user.id) {
+            await updateDoc(doc(db, 'users', user.id), { usedPromos: arrayUnion(promoCodeStr) });
+          }
+        }
       }
     }
 
@@ -109,7 +120,7 @@ export async function getUserOrders() {
     let data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     // Sort descending by createdAt in memory to avoid Firestore index requirement
     data.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-    data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(data))));
+    data = JSON.parse(JSON.stringify(data));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -121,7 +132,7 @@ export async function getOrders() {
     await requireRole(['admin', 'agent', 'finance']);
     const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() }))))));
+    const data = JSON.parse(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };

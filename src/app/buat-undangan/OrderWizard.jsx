@@ -326,7 +326,7 @@ function OrderWizardContent({ salesMode = false }) {
     const res = await validatePromoCode(code);
     
     if (res.success) {
-      setAppliedPromo({ code, discountPercent: res.discountPercent });
+      setAppliedPromo(res.promo ? { code, ...res.promo } : { code, discountPercent: res.discountPercent, promoType: 'percentage' });
     } else {
       setAppliedPromo(null);
       setPromoError(res.error || 'Kode promo tidak valid atau sudah kadaluarsa.');
@@ -631,7 +631,7 @@ function OrderWizardContent({ salesMode = false }) {
   }, [additionalCostDetails]);
 
   const pricing = useMemo(() => {
-    return calculateOrderPricing(activePlan?.price || 0, totalAdditionalCost, !!appliedPromo, paymentMethod);
+    return calculateOrderPricing(activePlan?.price || 0, totalAdditionalCost, appliedPromo, paymentMethod);
   }, [activePlan?.price, totalAdditionalCost, appliedPromo, paymentMethod]);
 
   const totalPaymentAmount = pricing.subtotal;
@@ -3183,7 +3183,7 @@ function OrderWizardContent({ salesMode = false }) {
             )}
             {appliedPromo && (
               <p style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: '#059669', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <Check size={14} /> Berhasil! Diskon {appliedPromo.discountPercent}% (Rp {appliedDiscountAmount.toLocaleString('id-ID')}) telah digunakan.
+                <Check size={14} /> Berhasil! Diskon Rp {appliedDiscountAmount.toLocaleString('id-ID')} telah digunakan.
               </p>
             )}
           </div>

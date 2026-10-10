@@ -6,12 +6,45 @@ import { requireRole } from '../../lib/auth';
 
 const ROLES = ['user', 'agent', 'finance', 'sales', 'admin'];
 
+export async function claimPromoCode(promoCode) {
+  try {
+    const { getSessionUser } = await import('../../lib/auth');
+    const authUser = await getSessionUser();
+    if (!authUser) throw new Error("Not logged in");
+
+    const userRef = doc(db, 'users', authUser.id);
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists()) throw new Error("User not found");
+    const userData = userSnap.data();
+
+    const claimedPromos = userData.claimedPromos || [];
+    if (claimedPromos.includes(promoCode)) {
+      return { success: true, message: "Promo sudah diklaim sebelumnya." };
+    }
+
+    // Verify if this promo code actually exists in the database
+    const qCheck = query(collection(db, 'promocodes'), where('code', '==', promoCode));
+    const snap = await getDocs(qCheck);
+    if (snap.empty) {
+      return { success: false, error: "Kode promo tidak ditemukan di database." };
+    }
+
+    // Add to user's claimedPromos
+    claimedPromos.push(promoCode);
+    await updateDoc(userRef, { claimedPromos });
+
+    return { success: true, message: `Promo ${promoCode} berhasil diklaim!` };
+  } catch(err) {
+    return { success: false, error: err.message };
+  }
+}
+
 export async function getUsers() {
   try {
     await requireRole(['admin', 'agent']);
     const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
-    const data = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))))));
+    const data = JSON.parse(JSON.stringify(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     return { success: true, data };
   } catch (error) {
     return { success: false, error: error.message };
@@ -84,16 +117,16 @@ export async function getSalesStats() {
     await requireRole(['admin', 'finance', 'agent', 'sales']);
     
     const agentsSnap = await getDocs(query(collection(db, 'users'), where('role', 'in', ['agent', 'sales'])));
-    const agents = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(agentsSnap.docs.map(d => ({ id: d.id, ...d.data() }))))));
+    const agents = JSON.parse(JSON.stringify(agentsSnap.docs.map(d => ({ id: d.id, ...d.data() }))));
     
     const promosSnap = await getDocs(collection(db, 'promocodes'));
-    const allPromos = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(promosSnap.docs.map(d => ({ id: d.id, ...d.data() }))))));
+    const allPromos = JSON.parse(JSON.stringify(promosSnap.docs.map(d => ({ id: d.id, ...d.data() }))));
     
     const ordersSnap = await getDocs(query(collection(db, 'orders')));
-    const allOrders = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })))))).filter(o => o.agentId);
+    const allOrders = JSON.parse(JSON.stringify(ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })))).filter(o => o.agentId);
     
     const wSnap = await getDocs(collection(db, 'withdrawals'));
-    const allWithdrawals = JSON.parse(JSON.stringify(JSON.parse(JSON.stringify(wSnap.docs.map(d => ({ id: d.id, ...d.data() }))))));
+    const allWithdrawals = JSON.parse(JSON.stringify(wSnap.docs.map(d => ({ id: d.id, ...d.data() }))));
     
     const stats = agents.map(agent => {
       const agentPromo = allPromos.find(p => p.agentId === agent.id);

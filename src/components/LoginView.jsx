@@ -202,12 +202,12 @@ export default function LoginPage() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#F9FAFB',
+      background: 'rgb(255, 255, 255)',
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
       fontFamily: 'system-ui, -apple-system, sans-serif',
-      padding: '2rem 1rem'
+      padding: '2rem 1rem 6rem 1rem'
     }}>
       <div style={{
         width: '100%',

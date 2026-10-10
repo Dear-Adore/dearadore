@@ -1,7 +1,31 @@
 // Calculate pricing based on Hero-Agent schema
-export function calculateOrderPricing(basePrice, addonTotal, hasPromo, paymentMethod = 'qris') {
-  const discountRate = 0.20;
-  const discountAmount = hasPromo ? basePrice * discountRate : 0;
+export function calculateOrderPricing(basePrice, addonTotal, appliedPromo, paymentMethod = 'qris') {
+  let discountAmount = 0;
+  
+  if (appliedPromo) {
+    if (appliedPromo === true) {
+      discountAmount = basePrice * 0.20;
+    } else {
+      const type = appliedPromo.promoType || 'percentage';
+      if (type === 'fixed') {
+        discountAmount = parseFloat(appliedPromo.discountAmount) || 0;
+      } else if (type === 'percentage') {
+        const percent = parseFloat(appliedPromo.discountPercent) || 20;
+        discountAmount = basePrice * (percent / 100);
+      } else if (type === 'percentage_capped') {
+        const percent = parseFloat(appliedPromo.discountPercent) || 20;
+        const maxCap = parseFloat(appliedPromo.maxDiscountAmount) || 0;
+        let calculated = basePrice * (percent / 100);
+        discountAmount = (maxCap > 0 && calculated > maxCap) ? maxCap : calculated;
+      }
+    }
+  }
+
+  // ensure discount doesn't exceed basePrice
+  if (discountAmount > basePrice) {
+    discountAmount = basePrice;
+  }
+
   const discountedBase = basePrice - discountAmount;
   const subtotal = discountedBase + addonTotal;
   
@@ -25,7 +49,7 @@ export function calculateOrderPricing(basePrice, addonTotal, hasPromo, paymentMe
   
   // Calculate sales commission (rounded down to nearest thousand)
   let commissionAmount = 0;
-  if (hasPromo) {
+  if (appliedPromo) {
     const rawCommission = discountedBase * 0.15;
     commissionAmount = Math.floor(rawCommission / 1000) * 1000;
   }
@@ -36,7 +60,7 @@ export function calculateOrderPricing(basePrice, addonTotal, hasPromo, paymentMe
   // Calculate net revenue and margin discrepancies
   const companyNetRevenue = grandTotal - commissionAmount - realPgFee;
   const extraProfitFromCeil = displayedServiceFee - rawServiceFee;
-  const extraProfitFromFloor = (hasPromo ? (discountedBase * 0.15) : 0) - commissionAmount;
+  const extraProfitFromFloor = (appliedPromo ? (discountedBase * 0.15) : 0) - commissionAmount;
 
   return {
     basePrice,

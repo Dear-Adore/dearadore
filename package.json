@@ -12,6 +12,7 @@
     "preview": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && opennextjs-cloudflare preview"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
     "firebase": "^13.0.0",
     "firebase-admin": "^14.5.0",
     "framer-motion": "^11.18.2",
